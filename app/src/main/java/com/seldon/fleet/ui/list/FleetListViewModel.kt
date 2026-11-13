@@ -8,6 +8,7 @@ import com.seldon.fleet.domain.model.DeviceStatus
 import com.seldon.fleet.domain.repository.DeviceRepository
 import com.seldon.fleet.domain.usecase.ClassifyDevice
 import com.seldon.fleet.domain.usecase.DeviceHealth
+import com.seldon.fleet.domain.usecase.FleetPercentileClassifier
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,14 +17,29 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
+ * Modos de classificação disponíveis na interface para alternar entre
+ * a Regra de Referência (Seção 4.2) e a Trilha A Híbrida por Percentil (Seção 10).
+ */
+enum class ClassificationMode(val label: String) {
+    FIXED_RULE("Regra Fixa"),
+    PERCENTILE("Percentil")
+}
+
+/**
  * Representa um item já processado para exibição na interface (Tela 1 e Tela 2).
- * Une os dados limpos do dispositivo, o resultado da classificação e o estado de favorito.
+ * Une os dados limpos do dispositivo, o resultado da classificação ativa, as avaliações de
+ * ambos os métodos (para comparação imediata) e o estado de favorito.
  */
 data class FleetDeviceUiItem(
     val device: Device,
     val health: DeviceHealth,
+    val referenceHealth: DeviceHealth,
+    val percentileHealth: DeviceHealth,
     val isFavorite: Boolean
-)
+) {
+    val hasDivergence: Boolean
+        get() = referenceHealth.status != percentileHealth.status
+}
 
 /**
  * Fotografia completa do estado atual da interface (Padrão UDF - Unidirectional Data Flow).
@@ -31,6 +47,9 @@ data class FleetDeviceUiItem(
 data class FleetUiState(
     val isLoading: Boolean = true,
     val errorMessage: String? = null,
+    val classificationMode: ClassificationMode = ClassificationMode.FIXED_RULE,
+    val learnedWarningDrainPct: Double = 7.0,
+    val learnedCriticalDrainPct: Double = 12.0,
     val allItems: List<FleetDeviceUiItem> = emptyList(),
     val filteredItems: List<FleetDeviceUiItem> = emptyList(),
     val selectedStatusFilter: DeviceStatus? = null, // null = mostra "Todos"
@@ -54,6 +73,7 @@ class FleetListViewModel(
 
     private var cachedDevices: List<Device> = emptyList()
     private var currentFavoriteIds: Set<String> = emptySet()
+    private var percentileClassifier: FleetPercentileClassifier? = null
 
     init {
         loadFleetAndObserveFavorites()
@@ -65,6 +85,7 @@ class FleetListViewModel(
             try {
                 // 1. Carrega os dispositivos de assets/frota.json (REQ-01)
                 cachedDevices = repository.getDevices()
+                percentileClassifier = FleetPercentileClassifier(cachedDevices)
 
                 // 2. Observa continuamente as alterações de favoritos no DataStore (REQ-07)
                 repository.getFavoriteIds().collectLatest { favoriteIds ->
@@ -80,6 +101,15 @@ class FleetListViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * Alterna entre "Regra Fixa" e "Percentil" (Trilha A) preservando o filtro de status selecionado.
+     */
+    fun onSelectClassificationMode(mode: ClassificationMode) {
+        if (_uiState.value.classificationMode == mode) return
+        _uiState.update { it.copy(classificationMode = mode) }
+        rebuildUiState()
     }
 
     /**
@@ -118,15 +148,27 @@ class FleetListViewModel(
     }
 
     private fun rebuildUiState() {
+        val currentPercentileClassifier = percentileClassifier ?: FleetPercentileClassifier(cachedDevices)
+        val activeMode = _uiState.value.classificationMode
+
         val allItems = cachedDevices.map { device ->
+            val refHealth = classifyDevice(device)
+            val pctHealth = currentPercentileClassifier(device)
+            val activeHealth = when (activeMode) {
+                ClassificationMode.FIXED_RULE -> refHealth
+                ClassificationMode.PERCENTILE -> pctHealth
+            }
+
             FleetDeviceUiItem(
                 device = device,
-                health = classifyDevice(device),
+                health = activeHealth,
+                referenceHealth = refHealth,
+                percentileHealth = pctHealth,
                 isFavorite = currentFavoriteIds.contains(device.id)
             )
         }
 
-        // Calcula a contagem de cada um dos 4 estados canônicos (REQ-05)
+        // Calcula a contagem de cada um dos 4 estados canônicos no modo ativo (REQ-05)
         val counts = DeviceStatus.entries.associateWith { status ->
             allItems.count { it.health.status == status }
         }
@@ -138,7 +180,7 @@ class FleetListViewModel(
             allItems.filter { it.health.status == activeFilter }
         }
 
-        // Se a Tela 2 estiver aberta e o usuário favoritar o aparelho, atualiza o item aberto
+        // Se a Tela 2 estiver aberta e o usuário favoritar o aparelho ou trocar o modo, atualiza o item aberto
         val currentDetailId = _uiState.value.selectedDeviceForDetail?.device?.id
         val updatedDetail = if (currentDetailId != null) {
             allItems.find { it.device.id == currentDetailId }
@@ -150,6 +192,8 @@ class FleetListViewModel(
             it.copy(
                 isLoading = false,
                 errorMessage = null,
+                learnedWarningDrainPct = currentPercentileClassifier.learnedWarningDrainThreshold,
+                learnedCriticalDrainPct = currentPercentileClassifier.learnedCriticalDrainThreshold,
                 allItems = allItems,
                 filteredItems = filtered,
                 statusCounts = counts,

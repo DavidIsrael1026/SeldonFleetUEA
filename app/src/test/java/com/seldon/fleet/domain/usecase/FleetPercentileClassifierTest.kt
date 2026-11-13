@@ -89,4 +89,36 @@ class FleetPercentileClassifierTest {
         assertEquals(DeviceStatus.CRITICO, referenceClassifier(dev1839).status)
         assertEquals(DeviceStatus.CRITICO, percentileClassifier(dev1839).status)
     }
+
+    @Test
+    fun `modelo hibrido com teto fisico - impede falsos bons quando a frota inteira sofre degradacao simultanea`() {
+        // Simula uma frota inteira degradada (todos os aparelhos drenando entre 15.0 %/h e 22.0 %/h)
+        // capacityMah = 5000, screenMinutes = 60 -> 750 mAh = 15.0%/h, 800 mAh = 16.0%/h, ..., 1100 mAh = 22.0%/h
+        val degradedFleet = listOf(
+            sampleDevice("DEG-01", tier = "low", energyMah = 750.0),  // 15.0 %/h
+            sampleDevice("DEG-02", tier = "mid", energyMah = 800.0),  // 16.0 %/h
+            sampleDevice("DEG-03", tier = "high", energyMah = 850.0), // 17.0 %/h
+            sampleDevice("DEG-04", tier = "low", energyMah = 900.0),  // 18.0 %/h
+            sampleDevice("DEG-05", tier = "mid", energyMah = 950.0),  // 19.0 %/h
+            sampleDevice("DEG-06", tier = "high", energyMah = 1000.0),// 20.0 %/h
+            sampleDevice("DEG-07", tier = "low", energyMah = 1050.0), // 21.0 %/h
+            sampleDevice("DEG-08", tier = "mid", energyMah = 1100.0)  // 22.0 %/h
+        )
+
+        val hybridClassifier = FleetPercentileClassifier(degradedFleet)
+
+        // Sem teto físico, P75 seria ~20.25%/h e P90 seria ~21.3%/h, classificando 16.0%/h como OK ("falso bom").
+        // Com as travas físicas (coerceIn), os limiares ficam cravados nos tetos de segurança:
+        assertEquals(10.5, hybridClassifier.learnedWarningDrainThreshold, 0.001)
+        assertEquals(14.0, hybridClassifier.learnedCriticalDrainThreshold, 0.001)
+
+        // Aparelho com dreno de 16.0 %/h jamais é classificado como OK ("falso bom"), sendo barrado como CRITICO (>= 14.0%/h)
+        val dev16Pct = degradedFleet.first { it.id == "DEG-02" }
+        assertEquals(DeviceStatus.CRITICO, hybridClassifier(dev16Pct).status)
+
+        // Todos os aparelhos da frota degradada (>= 15.0%/h) são corretamente reportados como CRITICO
+        degradedFleet.forEach { device ->
+            assertEquals(DeviceStatus.CRITICO, hybridClassifier(device).status)
+        }
+    }
 }

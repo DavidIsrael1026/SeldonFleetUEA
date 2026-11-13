@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.seldon.fleet.ui.list.ClassificationMode
 import com.seldon.fleet.ui.list.FleetDeviceUiItem
 import com.seldon.fleet.ui.list.StatusBadgeChip
 import com.seldon.fleet.ui.list.toChipColors
@@ -39,6 +40,7 @@ import java.util.Locale
 @Composable
 fun DeviceDetailScreen(
     item: FleetDeviceUiItem,
+    classificationMode: ClassificationMode,
     onBackClick: () -> Unit,
     onToggleFavorite: () -> Unit,
     modifier: Modifier = Modifier
@@ -128,7 +130,7 @@ fun DeviceDetailScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Diagnóstico de Saúde",
+                            text = "Diagnóstico de Saúde (${classificationMode.label})",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = statusTextColor
@@ -144,6 +146,77 @@ fun DeviceDetailScreen(
                         fontWeight = FontWeight.SemiBold,
                         color = statusTextColor
                     )
+                }
+            }
+
+            // Quadro Comparativo: Regra Fixa vs Percentil (Trilha A)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Comparativo: Regra Fixa vs Percentil (Trilha A)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1A237E)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text(
+                                text = "Regra Fixa (7%/h • 12%/h)",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF212121)
+                            )
+                            Text(
+                                text = item.referenceHealth.reason,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF616161)
+                            )
+                        }
+                        StatusBadgeChip(status = item.referenceHealth.status)
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(Color(0xFFEEEEEE))
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text(
+                                text = "Percentil Híbrido (P75 • P90)",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF212121)
+                            )
+                            Text(
+                                text = item.percentileHealth.reason,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF616161)
+                            )
+                        }
+                        StatusBadgeChip(status = item.percentileHealth.status)
+                    }
                 }
             }
 

@@ -50,6 +50,7 @@ Segui a divisão em 3 camadas pedida na Seção 6 do desafio:
 Para a Trilha A, foi criada uma segunda regra de classificação (`FleetPercentileClassifier.kt`) que olha para o comportamento do próprio grupo de aparelhos do arquivo, em vez de usar os limites travados em `7%/h` e `12%/h`:
 - A regra calcula os percentis **P75 (9,77%/h)** para Atenção e **P90 (13,38%/h)** para Crítico em cima dos 28 aparelhos válidos da frota, além de analisar a taxa de *jank* separando pelo porte do processador (`tier`: low, mid, high).
 - **Comparação na prática:** Na regra fixa, os aparelhos `DEV-1514` (dreno de `7,42%/h`) e `DEV-1625` (dreno de `7,58%/h`), que são dois Moto G13 (`tier: low`) sem nenhum *crash* e com *jank* baixo (< 3%), levam alerta de `ATENÇÃO` só porque passaram um pouco de 7%. Na regra por percentil da Trilha A, eles ficam como `OK`, pois esse consumo está dentro da média normal dos aparelhos da frota, evitando gerar alerta falso de manutenção.
+- **Modelo híbrido com travas físicas (Guardrails):** O `FleetPercentileClassifier` implementa um modelo híbrido que combina os percentis empíricos ($P_{75}/P_{90}$ de dreno relativo + $P_{85}$ de *jank* por `tier`) com pisos e tetos físicos absolutos via `coerceIn` (`6,0%/h` a `10,5%/h` para Atenção e `10,0%/h` a `14,0%/h` para Crítico). Isso resolve a limitação clássica de modelos puramente estatísticos: evita falsos positivos em frotas muito saudáveis (piso) e impede falsos negativos ("falsos bons") caso a frota inteira sofra degradação simultânea (teto).
 
 ---
 

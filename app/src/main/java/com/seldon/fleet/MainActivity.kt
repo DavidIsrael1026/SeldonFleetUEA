@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
                     if (selectedDetailItem != null) {
                         DeviceDetailScreen(
                             item = selectedDetailItem,
+                            classificationMode = uiState.classificationMode,
                             onBackClick = { viewModel.onNavigateBackToList() },
                             onToggleFavorite = {
                                 viewModel.onToggleFavorite(selectedDetailItem.device.id)
@@ -63,6 +64,9 @@ class MainActivity : ComponentActivity() {
                     } else {
                         FleetListScreen(
                             uiState = uiState,
+                            onSelectClassificationMode = { mode ->
+                                viewModel.onSelectClassificationMode(mode)
+                            },
                             onSelectFilter = { status -> viewModel.onSelectStatusFilter(status) },
                             onDeviceClick = { deviceId -> viewModel.onOpenDeviceDetail(deviceId) },
                             onToggleFavorite = { deviceId -> viewModel.onToggleFavorite(deviceId) }

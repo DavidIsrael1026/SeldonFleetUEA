@@ -8,11 +8,18 @@ import kotlin.math.ceil
 /**
  * TRILHA A — IA Aplicada à Otimização (Seção 10 da Especificação Técnica).
  *
- * Segunda implementação de classificação orientada pelos dados da própria frota (Data-Driven),
- * combinando estatística não-paramétrica (Percentis P75 e P90 de dreno relativo) e limiares
- * de Jank contextualizados pelo 'tier' de hardware do SoC (low, mid, high).
+ * Segunda implementação de classificação baseada em um **modelo híbrido** que combina
+ * estatística não-paramétrica orientada pelos dados da própria frota (Percentis P75 e P90 de
+ * dreno relativo e P85 de Jank contextualizado pelo 'tier' de hardware do SoC: low, mid, high)
+ * com travas físicas absolutas de piso e teto (guardrails via `coerceIn`).
  *
- * Totalmente isolada em domain/ em Kotlin puro (Zero import android.* - REQ-04).
+ * - **Piso físico (min):** Evita falsos positivos em frotas excepcionalmente saudáveis, impedindo
+ *   que oscilações normais de consumo sejam rotuladas como anomalia.
+ * - **Teto físico (max):** Evita falsos negativos ("falsos bons") caso a frota inteira sofra
+ *   degradação simultânea (ex.: atualização defeituosa de firmware ou app em background),
+ *   garantindo que drenos fisicamente severos continuem disparando alertas de Atenção e Crítico.
+ *
+ * Totalmente isolada em domain/ em Kotlin puro (Zero dependências do SDK Android - REQ-04).
  */
 class FleetPercentileClassifier(
     fleetDevices: List<Device>,
@@ -21,7 +28,8 @@ class FleetPercentileClassifier(
 ) {
 
     /**
-     * Limiares aprendidos dinamicamente a partir da distribuição empírica da frota.
+     * Limiares híbridos aprendidos dinamicamente a partir da distribuição empírica da frota,
+     * limitados por travas físicas de segurança (piso e teto via `coerceIn` / `coerceAtLeast`).
      */
     val learnedWarningDrainThreshold: Double
     val learnedCriticalDrainThreshold: Double
@@ -31,19 +39,19 @@ class FleetPercentileClassifier(
         val validDrains = fleetDevices.mapNotNull { computeRelativeDrain(it) }.sorted()
 
         learnedWarningDrainThreshold = if (validDrains.isNotEmpty()) {
-            percentile(validDrains, warningDrainPercentile)
+            percentile(validDrains, warningDrainPercentile).coerceIn(6.0, 10.5)
         } else {
             7.0
         }
 
         learnedCriticalDrainThreshold = if (validDrains.isNotEmpty()) {
-            percentile(validDrains, criticalDrainPercentile)
+            percentile(validDrains, criticalDrainPercentile).coerceIn(10.0, 14.0)
         } else {
             12.0
         }
 
         // Calcula o P85 de jank dentro de cada tier (low, mid, high) para evitar penalizar
-        // GPUs de entrada com o mesmo rigor de flagships topo de linha
+        // GPUs de entrada com o mesmo rigor de flagships topo de linha, mantendo piso de 6.0%
         tierWarningJankThresholds = fleetDevices
             .groupBy { it.tier.lowercase() }
             .mapValues { (_, devicesInTier) ->

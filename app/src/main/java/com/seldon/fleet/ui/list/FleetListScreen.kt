@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.seldon.fleet.domain.model.DeviceStatus
+import java.util.Locale
 
 /**
  * Traduz o estado lógico do domínio para o rótulo visual da camada de apresentação (Seção 4.3).
@@ -56,11 +57,12 @@ fun DeviceStatus.toChipColors(): Pair<Color, Color> = when (this) {
 }
 
 /**
- * Tela 1: Lista da Frota (Seção 2.1, REQ-05, REQ-07).
+ * Tela 1: Lista da Frota (Seção 2.1, REQ-05, REQ-07, Trilha A).
  */
 @Composable
 fun FleetListScreen(
     uiState: FleetUiState,
+    onSelectClassificationMode: (ClassificationMode) -> Unit,
     onSelectFilter: (DeviceStatus?) -> Unit,
     onDeviceClick: (String) -> Unit,
     onToggleFavorite: (String) -> Unit,
@@ -96,6 +98,14 @@ fun FleetListScreen(
                 )
             }
         }
+
+        // Barra segmentada dedicada: "Regra Fixa" vs "Percentil" (Trilha A)
+        ClassificationModeBar(
+            selectedMode = uiState.classificationMode,
+            learnedWarningDrainPct = uiState.learnedWarningDrainPct,
+            learnedCriticalDrainPct = uiState.learnedCriticalDrainPct,
+            onSelectMode = onSelectClassificationMode
+        )
 
         // Barra horizontal de filtros por status com contagem (REQ-05)
         StatusFilterBar(
@@ -148,6 +158,83 @@ fun FleetListScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ClassificationModeBar(
+    selectedMode: ClassificationMode,
+    learnedWarningDrainPct: Double,
+    learnedCriticalDrainPct: Double,
+    onSelectMode: (ClassificationMode) -> Unit
+) {
+    Surface(
+        color = Color(0xFFE8EAF6),
+        shadowElevation = 1.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Modo:",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1A237E)
+                )
+
+                ClassificationMode.entries.forEach { mode ->
+                    val isSelected = selectedMode == mode
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onSelectMode(mode) },
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isSelected) Color(0xFF1A237E) else Color.White,
+                        contentColor = if (isSelected) Color.White else Color(0xFF1A237E),
+                        shadowElevation = if (isSelected) 2.dp else 0.dp
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = mode.label,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            val thresholdSummary = when (selectedMode) {
+                ClassificationMode.FIXED_RULE ->
+                    "Limiares fixos: Atenção ≥ 7.0%/h  •  Crítico ≥ 12.0%/h  •  Jank ≥ 8.0%"
+                ClassificationMode.PERCENTILE ->
+                    String.format(
+                        Locale.US,
+                        "Limiares híbridos (P75/P90 + travas): Atenção ≥ %.1f%%/h  •  Crítico ≥ %.1f%%/h  •  Jank P85/tier",
+                        learnedWarningDrainPct,
+                        learnedCriticalDrainPct
+                    )
+            }
+
+            Text(
+                text = thresholdSummary,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF283593),
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }
@@ -252,6 +339,21 @@ private fun FleetDeviceRowCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFF616161)
                 )
+                if (item.hasDivergence) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Surface(
+                        color = Color(0xFFE8EAF6),
+                        contentColor = Color(0xFF1A237E),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "Regra Fixa: ${item.referenceHealth.status.toDisplayLabel()} → Percentil: ${item.percentileHealth.status.toDisplayLabel()}",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.width(8.dp))
